@@ -12,7 +12,13 @@ const buildHeaders = (): HeadersInit => {
   };
 };
 
-export const getData = <S = unknown>(url: string): Promise<S> =>
-  fetch(url, { method: "GET", headers: buildHeaders() }).then((res) =>
-    res.json(),
-  );
+export const getData = async <S = unknown>(url: string): Promise<S> => {
+  const response = await fetch(url, { method: "GET", headers: buildHeaders() });
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(
+      `GitHub API error ${response.status}: ${message || response.statusText}`,
+    );
+  }
+  return response.json();
+};
