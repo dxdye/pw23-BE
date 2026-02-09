@@ -165,3 +165,63 @@ Deno.test("trims cache history to max versions", async () => {
     await client.close();
   }
 });
+
+Deno.test("keeps cache untouched on fetch error", async () => {
+  const client = await createMongoClient(mongoUrl);
+  const dbName = `pw23_test_${crypto.randomUUID()}`;
+  const cacheCollection = getCacheCollection(client, dbName);
+
+  const initialPayload = [
+    {
+      html_url: "https://github.com/dxdye/example",
+      full_name: "dxdye/example",
+      description: "initial",
+      pushed_at: "2026-02-01T00:00:00Z",
+      language: "TypeScript",
+    },
+  ];
+
+  const fetchStub = stub(globalThis, "fetch", () =>
+    Promise.resolve(
+      new Response(JSON.stringify(initialPayload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    ),
+  );
+
+  try {
+    const url = buildGithubReposUrl("dxdye");
+    await fetchAndCache(cacheCollection, url, 0);
+    fetchStub.restore();
+
+    const errorStub = stub(globalThis, "fetch", () =>
+      Promise.resolve(
+        new Response("Not Found", {
+          status: 404,
+          statusText: "Not Found",
+        }),
+      ),
+    );
+
+    try {
+      let threw = false;
+      try {
+        await fetchAndCache(cacheCollection, url, 0);
+      } catch (_error) {
+        threw = true;
+      }
+
+      assertEquals(threw, true);
+
+      const cached = await getCachedOrFetch(cacheCollection, url);
+      assertEquals(cached.data, initialPayload);
+      assertEquals(cached.versions.length, 1);
+    } finally {
+      errorStub.restore();
+    }
+  } finally {
+    await client.database(dbName).dropDatabase();
+    await client.close();
+  }
+});

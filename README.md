@@ -42,7 +42,8 @@ docker compose run --rm test
 - `MONGO_COLLECTION` (default: `github_cache`)
 - `GITHUB_ACCOUNTS` (comma-separated list, default: `dxdye`)
 - `CACHE_REFRESH_CRON` (default: `*/5 * * * *`)
-- `CACHE_MAX_VERSIONS` (default: `10`)
+- `CACHE_MAX_VERSIONS` (default: `0` for unlimited history)
+- `CACHE_CLEAR_ON_BSON` (default: `true`)
 - `PORT` (default: `8000`)
 - `GITHUB_TOKEN` (optional: increases GitHub API rate limits)
 

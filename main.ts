@@ -68,7 +68,10 @@ app.get(
     };
 
     if (Number.isFinite(historyCount) && historyCount! > 0) {
-      return (cached.versions ?? []).slice(-historyCount!).map((entry) => ({
+      const sortedHistory = [...(cached.versions ?? [])].sort(
+        (a, b) => a.updatedAt.getTime() - b.updatedAt.getTime(),
+      );
+      return sortedHistory.slice(-historyCount!).map((entry) => ({
         url: cached.url,
         updatedAt: entry.updatedAt,
         data: entry.data,

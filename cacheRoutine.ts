@@ -14,7 +14,29 @@ const DEFAULT_CRON_SCHEDULE =
 const DEFAULT_CRON_INTERVAL_MS = Number(
   Deno.env.get("CACHE_REFRESH_INTERVAL_MS") ?? 5 * 60 * 1000,
 );
-const DEFAULT_MAX_VERSIONS = Number(Deno.env.get("CACHE_MAX_VERSIONS") ?? 10);
+const DEFAULT_MAX_VERSIONS = Number(Deno.env.get("CACHE_MAX_VERSIONS") ?? 0);
+const DEFAULT_CLEAR_ON_BSON =
+  (Deno.env.get("CACHE_CLEAR_ON_BSON") ?? "true").toLowerCase() === "true";
+
+const isBsonCorruptionError = (error: unknown) =>
+  error instanceof Error &&
+  (error.name === "BSONError" || error.message.includes("BSONError"));
+
+const clearCorruptCache = async (
+  collection: ReturnType<typeof getCacheCollection>,
+  error: unknown,
+) => {
+  if (!DEFAULT_CLEAR_ON_BSON) return false;
+  if (!isBsonCorruptionError(error)) return false;
+  console.warn("Detected BSON corruption. Clearing cache collection.");
+  await collection.deleteMany({});
+  return true;
+};
+
+const normalizeMaxVersions = (maxVersions?: number) =>
+  Number.isFinite(maxVersions) && maxVersions && maxVersions > 0
+    ? Math.floor(maxVersions)
+    : undefined;
 
 export const createMongoClient = async (mongoUrl: string) => {
   const client = new MongoClient();
@@ -36,6 +58,7 @@ export const fetchAndCache = async (
   url: string = buildGithubReposUrl(DEFAULT_GITHUB_ACCOUNT),
   maxVersions: number = DEFAULT_MAX_VERSIONS,
 ) => {
+  const normalizedMaxVersions = normalizeMaxVersions(maxVersions);
   const data = await getData<GitHubApiRepositories>(url);
   const updatedAt = new Date();
   const cacheEntryBase: Omit<CacheEntry<GitHubApiRepositories>, "versions"> = {
@@ -44,36 +67,61 @@ export const fetchAndCache = async (
     updatedAt,
   };
 
-  await collection.updateOne(
-    { url },
-    {
-      $set: cacheEntryBase,
-      $push: {
-        versions: {
-          $each: [{ data, updatedAt }],
-          $slice: -maxVersions,
-        },
+  const update: {
+    $set: typeof cacheEntryBase;
+    $push: {
+      versions: {
+        $each: { data: GitHubApiRepositories; updatedAt: Date }[];
+        $slice?: number;
+      };
+    };
+  } = {
+    $set: cacheEntryBase,
+    $push: {
+      versions: {
+        $each: [{ data, updatedAt }],
+        ...(normalizedMaxVersions ? { $slice: -normalizedMaxVersions } : {}),
       },
     },
-    { upsert: true },
-  );
+  };
 
-  const stored = await collection.findOne({ url });
-  return (
-    stored ?? {
-      ...cacheEntryBase,
-      versions: [{ data, updatedAt }],
+  await collection.updateOne({ url }, update, { upsert: true });
+
+  try {
+    const stored = await collection.findOne({ url });
+    return (
+      stored ?? {
+        ...cacheEntryBase,
+        versions: [{ data, updatedAt }],
+      }
+    );
+  } catch (error) {
+    const cleared = await clearCorruptCache(collection, error);
+    if (cleared) {
+      return {
+        ...cacheEntryBase,
+        versions: [{ data, updatedAt }],
+      };
     }
-  );
+    throw error;
+  }
 };
 
 export const getCachedOrFetch = async (
   collection: ReturnType<typeof getCacheCollection>,
   url: string = buildGithubReposUrl(DEFAULT_GITHUB_ACCOUNT),
 ) => {
-  const cached = await collection.findOne({ url });
-  if (cached) return cached;
-  return fetchAndCache(collection, url);
+  try {
+    const cached = await collection.findOne({ url });
+    if (cached) return cached;
+    return fetchAndCache(collection, url);
+  } catch (error) {
+    const cleared = await clearCorruptCache(collection, error);
+    if (cleared) {
+      return fetchAndCache(collection, url);
+    }
+    throw error;
+  }
 };
 
 export const startCacheCron = (
