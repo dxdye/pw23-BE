@@ -2,7 +2,7 @@ import { assertEquals, assert } from "@std/assert";
 import { stub } from "@std/testing/mock";
 import {
   createMongoClient,
-  DEFAULT_GITHUB_REPOS_URL,
+  buildGithubReposUrl,
   fetchAndCache,
   getCachedOrFetch,
   getCacheCollection,
@@ -15,7 +15,7 @@ Deno.test("caches GitHub repositories response", async () => {
   const dbName = `pw23_test_${crypto.randomUUID()}`;
   const cacheCollection = getCacheCollection(client, dbName);
 
-  const fakePayload = [
+  const dxdyePayload = [
     {
       html_url: "https://github.com/dxdye/example",
       full_name: "dxdye/example",
@@ -25,38 +25,69 @@ Deno.test("caches GitHub repositories response", async () => {
     },
   ];
 
-  const fetchStub = stub(globalThis, "fetch", () =>
-    Promise.resolve(
-      new Response(JSON.stringify(fakePayload), {
+  const octoPayload = [
+    {
+      html_url: "https://github.com/octo/hello",
+      full_name: "octo/hello",
+      description: "octo",
+      pushed_at: "2026-02-02T00:00:00Z",
+      language: "Go",
+    },
+  ];
+
+  const resolveUrl = (input: RequestInfo | URL) => {
+    if (typeof input === "string") return input;
+    if (input instanceof URL) return input.toString();
+    return input.url;
+  };
+
+  const fetchStub = stub(globalThis, "fetch", (input: RequestInfo | URL) => {
+    const url = resolveUrl(input);
+    const payload = url.includes("/octo/") ? octoPayload : dxdyePayload;
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
-    ),
-  );
+    );
+  });
 
   try {
-    const cached = await getCachedOrFetch(
+    const dxdyeCached = await getCachedOrFetch(
       cacheCollection,
-      DEFAULT_GITHUB_REPOS_URL,
+      buildGithubReposUrl("dxdye"),
     );
 
-    assertEquals(cached.data, fakePayload);
-    assert(cached.updatedAt instanceof Date);
+    const octoCached = await getCachedOrFetch(
+      cacheCollection,
+      buildGithubReposUrl("octo"),
+    );
 
-    const updatedPayload = [{ ...fakePayload[0], description: "updated" }];
+    assertEquals(dxdyeCached.data, dxdyePayload);
+    assertEquals(octoCached.data, octoPayload);
+    assert(dxdyeCached.updatedAt instanceof Date);
+    assert(octoCached.updatedAt instanceof Date);
+
+    const updatedPayload = [{ ...dxdyePayload[0], description: "updated" }];
     fetchStub.restore();
-    const secondFetchStub = stub(globalThis, "fetch", () =>
-      Promise.resolve(
-        new Response(JSON.stringify(updatedPayload), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      ),
+    const secondFetchStub = stub(
+      globalThis,
+      "fetch",
+      (input: RequestInfo | URL) => {
+        const url = resolveUrl(input);
+        const payload = url.includes("/octo/") ? octoPayload : updatedPayload;
+        return Promise.resolve(
+          new Response(JSON.stringify(payload), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+      },
     );
 
     const refreshed = await fetchAndCache(
       cacheCollection,
-      DEFAULT_GITHUB_REPOS_URL,
+      buildGithubReposUrl("dxdye"),
     );
 
     assertEquals(refreshed.data, updatedPayload);

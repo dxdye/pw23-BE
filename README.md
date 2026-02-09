@@ -15,9 +15,8 @@ exported.
 
 ## Docker usage
 
-This service caches GitHub repository data for
-`https://api.github.com/users/dxdye/repos` in MongoDB and
-refreshes the cache on a cron-like interval (default: 5 minutes).
+This service caches GitHub repository data for multiple accounts in MongoDB and
+refreshes the cache on a cron schedule (default: every 5 minutes).
 
 ### Start the app
 
@@ -27,7 +26,7 @@ docker compose up --build app
 
 The endpoint is available at:
 
-- `GET http://localhost:8000/github/dxdye/repos`
+- `GET http://localhost:8000/github/{account}/repos`
 
 ### Run tests
 
@@ -40,6 +39,10 @@ docker compose run --rm test
 - `MONGO_URL` (default: `mongodb://localhost:27017`)
 - `MONGO_DB` (default: `pw23`)
 - `MONGO_COLLECTION` (default: `github_cache`)
-- `CACHE_REFRESH_INTERVAL_MS` (default: `300000`)
+- `GITHUB_ACCOUNTS` (comma-separated list, default: `dxdye`)
+- `CACHE_REFRESH_CRON` (default: `*/5 * * * *`)
 - `PORT` (default: `8000`)
 - `GITHUB_TOKEN` (optional: increases GitHub API rate limits)
+
+You can copy `.env.example` to `.env` and edit it to set accounts and the cron
+schedule.

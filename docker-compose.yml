@@ -9,10 +9,12 @@ services:
 
   app:
     build: .
+    env_file:
+      - .env
     environment:
       MONGO_URL: mongodb://mongo:27017
       PORT: 8000
-      CACHE_REFRESH_INTERVAL_MS: 300000
+      CACHE_REFRESH_CRON: "*/5 * * * *"
     ports:
       - "8000:8000"
     depends_on:
@@ -21,6 +23,8 @@ services:
   test:
     build: .
     command: deno test -A
+    env_file:
+      - .env
     environment:
       MONGO_URL: mongodb://mongo:27017
     depends_on:
