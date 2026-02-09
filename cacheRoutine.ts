@@ -14,6 +14,7 @@ const DEFAULT_CRON_SCHEDULE =
 const DEFAULT_CRON_INTERVAL_MS = Number(
   Deno.env.get("CACHE_REFRESH_INTERVAL_MS") ?? 5 * 60 * 1000,
 );
+const DEFAULT_MAX_VERSIONS = Number(Deno.env.get("CACHE_MAX_VERSIONS") ?? 10);
 
 export const createMongoClient = async (mongoUrl: string) => {
   const client = new MongoClient();
@@ -33,18 +34,37 @@ export const getCacheCollection = (
 export const fetchAndCache = async (
   collection: ReturnType<typeof getCacheCollection>,
   url: string = buildGithubReposUrl(DEFAULT_GITHUB_ACCOUNT),
+  maxVersions: number = DEFAULT_MAX_VERSIONS,
 ) => {
   const data = await getData<GitHubApiRepositories>(url);
   const updatedAt = new Date();
-  const cacheEntry: CacheEntry<GitHubApiRepositories> = {
+  const cacheEntryBase: Omit<CacheEntry<GitHubApiRepositories>, "versions"> = {
     url,
     data,
     updatedAt,
   };
 
-  await collection.updateOne({ url }, { $set: cacheEntry }, { upsert: true });
+  await collection.updateOne(
+    { url },
+    {
+      $set: cacheEntryBase,
+      $push: {
+        versions: {
+          $each: [{ data, updatedAt }],
+          $slice: -maxVersions,
+        },
+      },
+    },
+    { upsert: true },
+  );
 
-  return cacheEntry;
+  const stored = await collection.findOne({ url });
+  return (
+    stored ?? {
+      ...cacheEntryBase,
+      versions: [{ data, updatedAt }],
+    }
+  );
 };
 
 export const getCachedOrFetch = async (
