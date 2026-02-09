@@ -13,6 +13,7 @@ export type CacheEntry<T = unknown> = {
   url: string;
   data: T;
   updatedAt: Date;
+  versions: { data: T; updatedAt: Date }[];
 };
 
 export type Repository = {

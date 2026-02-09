@@ -27,6 +27,7 @@ docker compose up --build app
 The endpoint is available at:
 
 - `GET http://localhost:8000/github/{account}/repos`
+- `GET http://localhost:8000/github/{account}/repos?history=5` (last 5 cached versions)
 
 ### Run tests
 
@@ -41,6 +42,7 @@ docker compose run --rm test
 - `MONGO_COLLECTION` (default: `github_cache`)
 - `GITHUB_ACCOUNTS` (comma-separated list, default: `dxdye`)
 - `CACHE_REFRESH_CRON` (default: `*/5 * * * *`)
+- `CACHE_MAX_VERSIONS` (default: `10`)
 - `PORT` (default: `8000`)
 - `GITHUB_TOKEN` (optional: increases GitHub API rate limits)
 

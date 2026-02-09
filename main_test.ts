@@ -67,6 +67,8 @@ Deno.test("caches GitHub repositories response", async () => {
     assertEquals(octoCached.data, octoPayload);
     assert(dxdyeCached.updatedAt instanceof Date);
     assert(octoCached.updatedAt instanceof Date);
+    assertEquals(dxdyeCached.versions.length, 1);
+    assertEquals(octoCached.versions.length, 1);
 
     const updatedPayload = [{ ...dxdyePayload[0], description: "updated" }];
     fetchStub.restore();
@@ -91,8 +93,74 @@ Deno.test("caches GitHub repositories response", async () => {
     );
 
     assertEquals(refreshed.data, updatedPayload);
+    assertEquals(refreshed.versions.length, 2);
+    assertEquals(refreshed.versions.at(-1)?.data, updatedPayload);
     secondFetchStub.restore();
   } finally {
+    await client.database(dbName).dropDatabase();
+    await client.close();
+  }
+});
+
+Deno.test("trims cache history to max versions", async () => {
+  const client = await createMongoClient(mongoUrl);
+  const dbName = `pw23_test_${crypto.randomUUID()}`;
+  const cacheCollection = getCacheCollection(client, dbName);
+
+  const payloads = [
+    [
+      {
+        html_url: "https://github.com/dxdye/example",
+        full_name: "dxdye/example",
+        description: "v1",
+        pushed_at: "2026-02-01T00:00:00Z",
+        language: "TypeScript",
+      },
+    ],
+    [
+      {
+        html_url: "https://github.com/dxdye/example",
+        full_name: "dxdye/example",
+        description: "v2",
+        pushed_at: "2026-02-02T00:00:00Z",
+        language: "TypeScript",
+      },
+    ],
+    [
+      {
+        html_url: "https://github.com/dxdye/example",
+        full_name: "dxdye/example",
+        description: "v3",
+        pushed_at: "2026-02-03T00:00:00Z",
+        language: "TypeScript",
+      },
+    ],
+  ];
+
+  let callCount = 0;
+  const fetchStub = stub(globalThis, "fetch", () => {
+    const payload = payloads[Math.min(callCount, payloads.length - 1)];
+    callCount += 1;
+    return Promise.resolve(
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  try {
+    const url = buildGithubReposUrl("dxdye");
+    await fetchAndCache(cacheCollection, url, 2);
+    await fetchAndCache(cacheCollection, url, 2);
+    const trimmed = await fetchAndCache(cacheCollection, url, 2);
+
+    assertEquals(trimmed.versions.length, 2);
+    assertEquals(trimmed.versions[0].data, payloads[1]);
+    assertEquals(trimmed.versions[1].data, payloads[2]);
+    assertEquals(trimmed.data, payloads[2]);
+  } finally {
+    fetchStub.restore();
     await client.database(dbName).dropDatabase();
     await client.close();
   }

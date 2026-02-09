@@ -32,8 +32,12 @@ app.get("/", () => ({ status: "ok" }));
 
 app.get(
   "/github/:account/repos",
-  async ({ params }: { params: { account: string } }) => {
-    const account = params.account;
+  async (ctx: {
+    params: { account: string };
+    req?: Request;
+    request?: Request;
+  }) => {
+    const account = ctx.params.account;
     if (!accountSet.has(account)) {
       return new Response(JSON.stringify({ error: "Account not configured" }), {
         status: 404,
@@ -41,16 +45,33 @@ app.get(
       });
     }
 
+    const request = ctx.req ?? ctx.request;
+    const historyParam = request
+      ? new URL(request.url).searchParams.get("history")
+      : null;
+    const historyCount = historyParam ? Number(historyParam) : undefined;
+
     const cached = await getCachedOrFetch(
       cacheCollection,
       buildGithubReposUrl(account),
     );
 
-    return {
+    const response: {
+      url: string;
+      updatedAt: Date;
+      data: typeof cached.data;
+      history?: { data: typeof cached.data; updatedAt: Date }[];
+    } = {
       url: cached.url,
       updatedAt: cached.updatedAt,
       data: cached.data,
     };
+
+    if (Number.isFinite(historyCount) && historyCount! > 0) {
+      response.history = (cached.versions ?? []).slice(-historyCount!);
+    }
+
+    return response;
   },
 );
 
