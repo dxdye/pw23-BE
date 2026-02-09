@@ -1,0 +1,30 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+
+  app:
+    build: .
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      PORT: 8000
+      CACHE_REFRESH_INTERVAL_MS: 300000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+
+  test:
+    build: .
+    command: deno test -A
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+    depends_on:
+      - mongo
+
+volumes:
+  mongo-data:

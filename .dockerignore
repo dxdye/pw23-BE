@@ -1,0 +1,5 @@
+.git
+.vscode
+*.log
+nohup.out
+deno.lock
