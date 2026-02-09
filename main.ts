@@ -68,7 +68,11 @@ app.get(
     };
 
     if (Number.isFinite(historyCount) && historyCount! > 0) {
-      response.history = (cached.versions ?? []).slice(-historyCount!);
+      return (cached.versions ?? []).slice(-historyCount!).map((entry) => ({
+        url: cached.url,
+        updatedAt: entry.updatedAt,
+        data: entry.data,
+      }));
     }
 
     return response;
