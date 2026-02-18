@@ -1,0 +1,63 @@
+name: Test
+
+on:
+  push:
+    branches: [main, develop, "feat/**"]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: pw23
+          POSTGRES_USER: cache_user
+          POSTGRES_PASSWORD: cache_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5433:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: vx.x.x # Use latest
+
+      - name: Create .env file
+        run: |
+          cat > .env << EOF
+          DB_NAME=pw23
+          DB_USER=cache_user
+          DB_PASSWORD=cache_pass
+          DB_PORT=5433
+          GITHUB_ACCOUNTS=dxdye,d2tsb
+          CACHE_REFRESH_CRON=*/1 * * * *
+          PORT=8000
+          EOF
+
+      - name: Cache Deno dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.deno
+          key: ${{ runner.os }}-deno-${{ hashFiles('**/deno.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-deno-
+
+      - name: Verify TypeScript
+        run: deno cache main.ts
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://cache_user:cache_pass@localhost:5433/pw23
+        run: deno test -A

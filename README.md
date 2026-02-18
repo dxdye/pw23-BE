@@ -60,6 +60,8 @@ The endpoint is available at:
 docker compose run --rm test
 ```
 
+Tests are automatically run on every push to `main`, `develop`, and feature branches via GitHub Actions. See `.github/workflows/test.yml` for details.
+
 ### Reset the database
 
 To clear all cache entries and version history:
