@@ -1,4 +1,5 @@
-const Accounts = ["dxdye", "d2tsb"];
+// Placeholder for potential account configurations
+const _Accounts = ["dxdye", "d2tsb"];
 
 export type GithubCrawlerInfo = {
   html_url: string;

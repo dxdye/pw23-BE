@@ -5,8 +5,9 @@ WORKDIR /app
 COPY deno.json ./
 COPY . .
 
-RUN deno cache main.ts
+# Clean old lock and regenerate with current dependencies
+RUN rm -f deno.lock && deno cache main.ts
 
 EXPOSE 8000
 
-CMD ["deno", "run", "-A", "main.ts"]
+CMD ["deno", "run", "-A", "--unstable-cron", "main.ts"]
