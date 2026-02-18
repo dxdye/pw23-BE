@@ -2,16 +2,16 @@ import nhttp from "@nhttp/nhttp";
 import { load } from "@std/dotenv";
 import {
   buildGithubReposUrl,
-  createMongoClient,
+  createPostgresClient,
   DEFAULT_GITHUB_ACCOUNT,
   getCachedOrFetch,
-  getCacheCollection,
+  initializeCacheTables,
   startCacheCron,
 } from "./cacheRoutine.ts";
 
 await load({ export: true });
 
-const mongoUrl = Deno.env.get("MONGO_URL") ?? "mongodb://localhost:27017";
+const dbUrl = Deno.env.get("DATABASE_URL") ?? "postgresql://localhost/pw23";
 const port = Number(Deno.env.get("PORT") ?? 8000);
 const accounts = (Deno.env.get("GITHUB_ACCOUNTS") ?? DEFAULT_GITHUB_ACCOUNT)
   .split(",")
@@ -19,11 +19,11 @@ const accounts = (Deno.env.get("GITHUB_ACCOUNTS") ?? DEFAULT_GITHUB_ACCOUNT)
   .filter(Boolean);
 const accountSet = new Set(accounts);
 
-const client = await createMongoClient(mongoUrl);
-const cacheCollection = getCacheCollection(client);
+const client = await createPostgresClient(dbUrl);
+await initializeCacheTables(client);
 
 for (const account of accounts) {
-  startCacheCron(cacheCollection, buildGithubReposUrl(account));
+  startCacheCron(client, buildGithubReposUrl(account));
 }
 
 const app = nhttp();
@@ -51,10 +51,16 @@ app.get(
       : null;
     const historyCount = historyParam ? Number(historyParam) : undefined;
 
-    const cached = await getCachedOrFetch(
-      cacheCollection,
-      buildGithubReposUrl(account),
-    );
+    let cached;
+    try {
+      cached = await getCachedOrFetch(client, buildGithubReposUrl(account));
+    } catch (error) {
+      console.error("Failed to read GitHub cache", error);
+      return new Response(JSON.stringify({ error: "Failed to read cache" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
     const response: {
       url: string;
