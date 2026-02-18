@@ -16,8 +16,32 @@ exported.
 ## Docker usage
 
 This service caches GitHub repository data for multiple accounts in PostgreSQL and
-refreshes the cache on a cron schedule (default: every 5 minutes).
+refreshes the cache on a cron schedule (default: every minute).
 It maintains infinite version history with timestamp-based ordering.
+
+### Setup
+
+1. Copy `.env.example` to `.env`:
+
+   ```sh
+   cp .env.example .env
+   ```
+
+2. Edit `.env` and customize your configuration:
+
+   ```bash
+   # PostgreSQL credentials and port
+   DB_NAME=pw23
+   DB_USER=cache_user
+   DB_PASSWORD=your_secure_password  # Change this!
+   DB_PORT=5433
+
+   # GitHub accounts to cache
+   GITHUB_ACCOUNTS=dxdye,d2tsb
+
+   # Optional: GitHub token for higher rate limits
+   GITHUB_TOKEN=ghp_your_token_here
+   ```
 
 ### Start the app
 
@@ -36,18 +60,32 @@ The endpoint is available at:
 docker compose run --rm test
 ```
 
+### Reset the database
+
+To clear all cache entries and version history:
+
+```sh
+docker compose run --rm reset-db
+```
+
+This will:
+
+- Drop the `cache_versions` table (with cascade to remove FK constraints)
+- Drop the `cache_entries` table
+- Preserve the PostgreSQL database itself (useful for fresh starts or testing)
+
 ### Environment variables
 
-- `DATABASE_URL` (default: `postgresql://localhost/pw23`) — PostgreSQL connection string
-- `CACHE_TABLE` (default: `cache_entries`) — Name of the current cache table
-- `VERSIONS_TABLE` (default: `cache_versions`) — Name of the version history table
-- `GITHUB_ACCOUNTS` (comma-separated list, default: `dxdye`)
-- `CACHE_REFRESH_CRON` (default: `*/5 * * * *`) — Cron schedule for cache refresh
-- `CACHE_REFRESH_INTERVAL_MS` (default: `300000`) — Fallback interval in milliseconds (if cron not available)
-- `PORT` (default: `8000`)
-- `GITHUB_TOKEN` (optional: increases GitHub API rate limits)
+All configuration is read from `.env` file. Key variables:
 
-You can copy `.env.example` to `.env` and edit it to set accounts and the cron schedule.
+- `DB_NAME` (default: `pw23`) — PostgreSQL database name
+- `DB_USER` (default: `cache_user`) — PostgreSQL user
+- `DB_PASSWORD` (default: `cache_pass`) — PostgreSQL password. Change in production!
+- `DB_PORT` (default: `5433`) — PostgreSQL port (external)
+- `GITHUB_ACCOUNTS` (comma-separated list, default: `dxdye`) — GitHub accounts to cache
+- `CACHE_REFRESH_CRON` (default: `*/1 * * * *`) — Cron schedule for cache refresh (every 1 minute)
+- `PORT` (default: `8000`) — App server port
+- `GITHUB_TOKEN` (optional) — GitHub personal access token for higher rate limits
 
 ### Database Schema
 

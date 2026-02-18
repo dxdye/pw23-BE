@@ -158,7 +158,7 @@ Deno.test("keeps cache untouched on fetch error", async () => {
     ];
 
     // First, store initial data
-    const _fetchStub1 = stub(globalThis, "fetch", () =>
+    stub(globalThis, "fetch", () =>
       Promise.resolve(
         new Response(JSON.stringify(initialPayload), {
           status: 200,
@@ -175,7 +175,7 @@ Deno.test("keeps cache untouched on fetch error", async () => {
     }
 
     // Now stub with error response
-    const _fetchStub2 = stub(globalThis, "fetch", () =>
+    stub(globalThis, "fetch", () =>
       Promise.resolve(
         new Response("Not Found", {
           status: 404,
