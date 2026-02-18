@@ -1,5 +1,5 @@
-import { assertEquals, assert } from "@std/assert";
-import { stub } from "@std/testing/mock";
+import { assertEquals } from "@std/assert";
+import { stub, restore } from "@std/testing/mock";
 import {
   createPostgresClient,
   buildGithubReposUrl,
@@ -15,6 +15,16 @@ const dbUrl =
 
 async function createTestDb() {
   const client = await createPostgresClient(dbUrl);
+
+  // Clean up any existing tables first
+  try {
+    await client.queryArray("DROP TABLE IF EXISTS cache_versions CASCADE");
+    await client.queryArray("DROP TABLE IF EXISTS cache_entries CASCADE");
+  } catch (_error) {
+    // Ignore errors during cleanup
+  }
+
+  // Then initialize fresh tables
   await initializeCacheTables(client);
   return client;
 }
@@ -33,55 +43,71 @@ async function cleanupTestDb(client: Client) {
   }
 }
 
-Deno.test("trims cache history to max versions", async () => {
+Deno.test("caches GitHub repositories response", async () => {
   const client = await createTestDb();
 
-  const testPayload = [
-    {
-      html_url: "https://github.com/test/repo",
-      full_name: "test/repo",
-      description: "test",
-      pushed_at: "2026-02-01T00:00:00Z",
-      language: "TypeScript",
-    },
-  ];
-
-  const fetchStub = stub(globalThis, "fetch", () => {
-    return Promise.resolve(
-      new Response(JSON.stringify(testPayload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  });
-
   try {
-    const url = buildGithubReposUrl("test");
-
-    // First fetch - should cache
-    const cached = await getCachedOrFetch(client, url);
-
-    // Verify data matches
-    assert(Array.isArray(cached.data));
-    assert(cached.data.length > 0);
-    assert(cached.updatedAt instanceof Date);
-
-    // First fetch should have 1 version
-    assertEquals(cached.versions.length, 1);
-
-    fetchStub.restore();
-
-    // Second fetch with updated data
-    const updatedPayload = [
+    const testPayload = [
       {
-        ...testPayload[0],
-        description: "updated",
+        html_url: "https://github.com/dxdye/example",
+        full_name: "dxdye/example",
+        description: "test repo",
+        pushed_at: "2026-02-01T00:00:00Z",
+        language: "TypeScript",
       },
     ];
 
-    const secondStub = stub(globalThis, "fetch", () => {
+    stub(globalThis, "fetch", () =>
+      Promise.resolve(
+        new Response(JSON.stringify(testPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    try {
+      const url = buildGithubReposUrl("dxdye");
+
+      // First call - should fetch from GitHub
+      const cached1 = await getCachedOrFetch(client, url);
+      assertEquals(cached1.data, testPayload);
+      assertEquals(cached1.versions.length, 1);
+
+      // Second call - should return cached data
+      const cached2 = await getCachedOrFetch(client, url);
+      assertEquals(cached2.data, testPayload);
+      assertEquals(cached2.versions.length, 1);
+    } finally {
+      restore();
+    }
+  } finally {
+    await cleanupTestDb(client);
+  }
+});
+
+Deno.test("builds cache history with multiple fetches", async () => {
+  const client = await createTestDb();
+
+  try {
+    const basePayload = {
+      html_url: "https://github.com/test/repo",
+      full_name: "test/repo",
+      pushed_at: "2026-02-01T00:00:00Z",
+      language: "TypeScript",
+    };
+
+    let callCount = 0;
+    stub(globalThis, "fetch", () => {
+      callCount++;
+      const payload = [
+        {
+          ...basePayload,
+          description: `version-${callCount}`,
+        },
+      ];
       return Promise.resolve(
-        new Response(JSON.stringify(updatedPayload), {
+        new Response(JSON.stringify(payload), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -89,72 +115,28 @@ Deno.test("trims cache history to max versions", async () => {
     });
 
     try {
-      // Fetch again
-      const refreshed = await fetchAndCache(client, url);
+      const url = buildGithubReposUrl("test");
 
-      // Should now have 2 versions
-      assertEquals(refreshed.versions.length, 2);
-      assert(Array.isArray(refreshed.data));
+      // Fetch multiple times to build up history
+      for (let i = 0; i < 3; i++) {
+        await fetchAndCache(client, url);
+      }
+
+      // Get final cached version
+      const cached = await getCachedOrFetch(client, url);
+
+      // Should have 3 versions stored
+      assertEquals(cached.versions.length, 3);
+
+      // Latest version should be version-3
+      const latestData = cached.versions.at(-1)?.data as unknown[] | undefined;
+      assertEquals(
+        (latestData?.[0] as Record<string, string>)?.description,
+        "version-3",
+      );
     } finally {
-      secondStub.restore();
+      restore();
     }
-  } finally {
-    await cleanupTestDb(client);
-  }
-});
-
-Deno.test("trims cache history to max versions", async () => {
-  const client = await createTestDb();
-
-  const basePayload = [
-    {
-      html_url: "https://github.com/test/repo",
-      full_name: "test/repo",
-      description: "test",
-      pushed_at: "2026-02-01T00:00:00Z",
-      language: "TypeScript",
-    },
-  ];
-
-  let callCount = 0;
-  const fetchStub = stub(globalThis, "fetch", () => {
-    callCount++;
-    const payload = [
-      {
-        ...basePayload[0],
-        description: `version-${callCount}`,
-      },
-    ];
-    return Promise.resolve(
-      new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    );
-  });
-
-  try {
-    const url = buildGithubReposUrl("test");
-
-    // Fetch multiple times to build up history
-    for (let i = 0; i < 5; i++) {
-      await fetchAndCache(client, url);
-    }
-
-    // Get final cached version
-    const cached = await getCachedOrFetch(client, url);
-
-    // Should have versions stored
-    assert(cached.versions.length > 0);
-
-    // Latest version should be version-5
-    const latestData = cached.versions.at(-1)?.data as unknown[] | undefined;
-    assertEquals(
-      (latestData?.[0] as Record<string, string>)?.description,
-      "version-5",
-    );
-
-    fetchStub.restore();
   } finally {
     await cleanupTestDb(client);
   }
@@ -162,36 +144,38 @@ Deno.test("trims cache history to max versions", async () => {
 
 Deno.test("keeps cache untouched on fetch error", async () => {
   const client = await createTestDb();
-
-  const initialPayload = [
-    {
-      html_url: "https://github.com/dxdye/example",
-      full_name: "dxdye/example",
-      description: "initial",
-      pushed_at: "2026-02-01T00:00:00Z",
-      language: "TypeScript",
-    },
-  ];
-
-  // First, store initial data
-  const fetchStub = stub(globalThis, "fetch", () =>
-    Promise.resolve(
-      new Response(JSON.stringify(initialPayload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  );
+  const url = buildGithubReposUrl("dxdye");
 
   try {
-    const url = buildGithubReposUrl("dxdye");
+    const initialPayload = [
+      {
+        html_url: "https://github.com/dxdye/example",
+        full_name: "dxdye/example",
+        description: "initial",
+        pushed_at: "2026-02-01T00:00:00Z",
+        language: "TypeScript",
+      },
+    ];
 
-    // Initial cache
-    await fetchAndCache(client, url);
-    fetchStub.restore();
+    // First, store initial data
+    const _fetchStub1 = stub(globalThis, "fetch", () =>
+      Promise.resolve(
+        new Response(JSON.stringify(initialPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    try {
+      // Initial cache
+      await fetchAndCache(client, url);
+    } finally {
+      restore();
+    }
 
     // Now stub with error response
-    const errorStub = stub(globalThis, "fetch", () =>
+    const _fetchStub2 = stub(globalThis, "fetch", () =>
       Promise.resolve(
         new Response("Not Found", {
           status: 404,
@@ -205,11 +189,8 @@ Deno.test("keeps cache untouched on fetch error", async () => {
         // This should not update the cache due to error response
         await fetchAndCache(client, url);
       } catch (_error) {
-        // Expected - error response should cause an error or be skipped
+        // Expected - error response should cause an error
       }
-
-      // Should have thrown or kept cache
-      // (depending on implementation, we just verify cache is still there)
 
       // Verify cache is untouched
       const cached = await getCachedOrFetch(client, url);
@@ -218,7 +199,7 @@ Deno.test("keeps cache untouched on fetch error", async () => {
       // Should still only have 1 version (initial)
       assertEquals(cached.versions.length, 1);
     } finally {
-      errorStub.restore();
+      restore();
     }
   } finally {
     await cleanupTestDb(client);
