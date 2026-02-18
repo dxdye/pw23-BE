@@ -167,12 +167,9 @@ Deno.test("keeps cache untouched on fetch error", async () => {
       ),
     );
 
-    try {
-      // Initial cache
-      await fetchAndCache(client, url);
-    } finally {
-      restore();
-    }
+    // Initial cache
+    await fetchAndCache(client, url);
+    restore(); // IMPORTANT: Restore before creating new stub
 
     // Now stub with error response
     stub(globalThis, "fetch", () =>
