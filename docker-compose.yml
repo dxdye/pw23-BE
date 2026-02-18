@@ -2,16 +2,22 @@ services:
   postgres:
     image: postgres:15
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
-      POSTGRES_DB: pw23
-      POSTGRES_USER: cache_user
-      POSTGRES_PASSWORD: cache_pass
+      POSTGRES_DB: ${DB_NAME:-pw23}
+      POSTGRES_USER: ${DB_USER:-cache_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cache_pass}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     ports:
-      - "5433:5432"
+      - "${DB_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cache_user -d pw23"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-cache_user} -d ${DB_NAME:-pw23}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -21,11 +27,11 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://cache_user:cache_pass@postgres:5432/pw23"
-      PORT: 8000
+      DATABASE_URL: "postgresql://${DB_USER:-cache_user}:${DB_PASSWORD:-cache_pass}@postgres:5432/${DB_NAME:-pw23}"
+      PORT: ${PORT:-8000}
       CACHE_REFRESH_CRON: "*/1 * * * *"
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,7 +42,22 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: "postgresql://cache_user:cache_pass@postgres:5432/pw23"
+      DATABASE_URL: "postgresql://${DB_USER:-cache_user}:${DB_PASSWORD:-cache_pass}@postgres:5432/${DB_NAME:-pw23}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  reset-db:
+    image: postgres:15
+    env_file:
+      - .env
+    entrypoint: >
+      sh -c "
+      PGPASSWORD=${DB_PASSWORD:-cache_pass} psql -h postgres -U ${DB_USER:-cache_user} -d ${DB_NAME:-pw23}
+      -c 'DROP TABLE IF EXISTS cache_versions CASCADE;'
+      -c 'DROP TABLE IF EXISTS cache_entries CASCADE;'
+      && echo 'Database reset complete.'
+      "
     depends_on:
       postgres:
         condition: service_healthy
