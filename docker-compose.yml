@@ -1,34 +1,36 @@
 services:
-  mongo:
-    image: mongo:7
-    restart: unless-stopped
-    volumes:
-      - mongo-data:/data/db
-    ports:
-      - "27017:27017"
-
   app:
     build: .
+    restart: unless-stopped
     env_file:
       - .env
     environment:
-      MONGO_URL: mongodb://mongo:27017
       PORT: 8000
-      CACHE_REFRESH_CRON: "*/5 * * * *"
+      CACHE_DB_PATH: /app/data/cache.db
     ports:
       - "8000:8000"
-    depends_on:
-      - mongo
+    volumes:
+      - cache-data:/app/data
+    # Der Cache ist ein paar hundert KB SQLite. Ohne Datenbankserver bleibt auf
+    # einem 1-GB-Host genug Luft für nginx und einen zweiten Dienst.
+    mem_limit: 256m
 
   test:
     build: .
-    command: deno test -A
-    env_file:
-      - .env
-    environment:
-      MONGO_URL: mongodb://mongo:27017
-    depends_on:
-      - mongo
+    working_dir: /app
+    user: root
+    command:
+      [
+        "deno",
+        "test",
+        "--allow-read",
+        "--allow-write",
+        "--allow-env",
+        "--allow-net",
+      ]
+    volumes:
+      - .:/app
+    profiles: ["tools"]
 
 volumes:
-  mongo-data:
+  cache-data:

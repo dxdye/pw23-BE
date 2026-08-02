@@ -1,3 +1,7 @@
 *.out
 .env
 .cache
+data/
+*.db
+*.db-shm
+*.db-wal

@@ -1,5 +1,10 @@
 .git
 .vscode
+.cache
+test
+data
 *.log
+*.db
+*.db-*
 nohup.out
-deno.lock
+.env
