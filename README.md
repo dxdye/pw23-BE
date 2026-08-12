@@ -45,8 +45,10 @@ cache: a GitHub outage or an exhausted rate limit must not take the site down.
   queued after the previous one finishes, so slow responses cannot cause
   overlapping runs.
 - **Conditional requests** — the `ETag` of each response is stored and sent back
-  as `If-None-Match`. A `304` does not count against the rate limit, so polling
-  is effectively free as long as nothing changed.
+  as `If-None-Match`. A `304` is exempt from the rate limit only when the
+  request carried an `Authorization` header — without `GITHUB_TOKEN` a `304`
+  still costs one request (measured). It always saves bandwidth; it saves quota
+  only with a token.
 - **Field projection** — GitHub sends ~81 fields per repo (43 of them URL
   templates); only the fields actually used are stored. Measured for `dxdye`: 61
   KB raw → 4.5 KB served.

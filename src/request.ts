@@ -108,7 +108,10 @@ export type FetchResult =
 /**
  * Holt alle Repositories eines Accounts, paginiert und auf die benötigten
  * Felder reduziert. Mit `etag` wird ein Conditional Request gestellt: eine
- * 304-Antwort zählt nicht gegen das Rate Limit.
+ * 304-Antwort zählt nur dann nicht gegen das Rate Limit, wenn der Request
+ * authentifiziert war - ohne GITHUB_TOKEN kostet auch ein 304 einen Request
+ * (gemessen). Sie spart also in jedem Fall Übertragung, das Kontingent aber
+ * erst mit Token.
  */
 export const fetchRepos = async (
   url: string,
