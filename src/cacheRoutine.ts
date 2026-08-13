@@ -98,7 +98,10 @@ export const startCacheRefresh = (
   intervalMs: number,
   timeoutMs?: number,
 ) => {
-  let timer: number | undefined;
+  // ReturnType statt number: sobald irgendwo node:-Module importiert werden
+  // (hier store.ts mit node:sqlite), zieht Deno Nodes globale Typen herein,
+  // und dort liefert setTimeout ein Timeout-Objekt statt einer Zahl.
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let stopped = false;
 
   const tick = async () => {
