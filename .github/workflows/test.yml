@@ -1,0 +1,60 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  deno:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # Buendelt deno fmt --check, deno lint und deno check - siehe deno.json.
+      - name: Format, Linter, Typen
+        run: deno task check
+
+      - name: Tests
+        run: deno task test
+
+  elixir:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: timemachine
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18"
+          otp-version: "27"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            timemachine/deps
+            timemachine/_build
+          key: mix-${{ hashFiles('timemachine/mix.lock') }}
+          restore-keys: mix-
+
+      - name: Abhaengigkeiten
+        run: mix deps.get
+
+      # Die Test-Datenbank ist eine SQLite-Datei unter timemachine/data.
+      # ecto.create legt die Datei an, aber nicht das Verzeichnis darueber.
+      - name: Datenverzeichnis anlegen
+        run: mkdir -p data
+
+      # Der test-Alias in mix.exs ruft vorher ecto.create und ecto.migrate auf,
+      # hier ist also kein eigener Migrationsschritt noetig.
+      - name: Tests
+        run: mix test
