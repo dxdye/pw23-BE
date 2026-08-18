@@ -166,6 +166,63 @@ defmodule Timemachine.HistoryTest do
     end
   end
 
+  describe "commits_synced?/2" do
+    setup do
+      :ok = History.upsert_repository(repo_attrs())
+      :ok
+    end
+
+    test "ohne je gelaufenen Abgleich ist nichts synchron" do
+      # Das ist der Fall, in dem der Backfill laufen muss.
+      refute History.commits_synced?(@repo_id, utc("2026-07-01T00:00:00Z"))
+    end
+
+    test "nach dem Abgleich gilt genau dieses pushed_at als erledigt" do
+      pushed = utc("2026-07-01T00:00:00Z")
+      :ok = History.mark_commits_synced(@repo_id, pushed)
+
+      assert History.commits_synced?(@repo_id, pushed)
+    end
+
+    test "ein neuer Push macht den Abgleich fällig" do
+      :ok = History.mark_commits_synced(@repo_id, utc("2026-07-01T00:00:00Z"))
+
+      refute History.commits_synced?(@repo_id, utc("2026-07-02T00:00:00Z"))
+    end
+
+    test "ein leeres Repository gilt trotzdem als abgeglichen" do
+      # Es hinterlässt keine Woche - ohne die eigene Spalte wäre es von einem
+      # nie geholten Repository nicht zu unterscheiden und würde bei jedem
+      # Lauf erneut geholt.
+      pushed = utc("2026-07-01T00:00:00Z")
+      :ok = History.mark_commits_synced(@repo_id, pushed)
+
+      assert is_nil(History.latest_week(@repo_id))
+      assert History.commits_synced?(@repo_id, pushed)
+    end
+
+    test "ohne pushed_at wird abgeglichen statt geraten" do
+      :ok = History.mark_commits_synced(@repo_id, utc("2026-07-01T00:00:00Z"))
+
+      refute History.commits_synced?(@repo_id, nil)
+    end
+
+    test "ein unbekanntes Repository ist nicht synchron" do
+      refute History.commits_synced?(999_999, utc("2026-07-01T00:00:00Z"))
+    end
+
+    test "der Vermerk überlebt einen Upsert" do
+      pushed = utc("2026-07-01T00:00:00Z")
+      :ok = History.mark_commits_synced(@repo_id, pushed)
+
+      # Jeder Lauf schreibt die Stammdaten neu - der Abgleichstand darf dabei
+      # nicht verloren gehen, sonst holt jeder Lauf alles erneut.
+      :ok = History.upsert_repository(repo_attrs(%{name: "umbenannt"}))
+
+      assert History.commits_synced?(@repo_id, pushed)
+    end
+  end
+
   describe "latest_week/1" do
     test "nil, solange nichts erfasst ist" do
       assert is_nil(History.latest_week(@repo_id))

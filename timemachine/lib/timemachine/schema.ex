@@ -13,6 +13,8 @@ defmodule Timemachine.Schema.Repository do
     # nil = derzeit öffentlich sichtbar. Sonst der Zeitpunkt, zu dem das
     # Repository aus der GitHub-Liste verschwand.
     field :disappeared_at, :utc_datetime
+    # Das `pushed_at`, bis zu dem die Commits geholt wurden. nil = noch nie.
+    field :synced_pushed_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end

@@ -189,6 +189,45 @@ defmodule Timemachine.History do
     :ok
   end
 
+  @doc """
+  Steht die Commit-Historie dieses Repositories schon für diesen `pushed_at`?
+
+  `pushed_at` ist das Signal: GitHub bewegt es bei jedem Push. Ist derselbe
+  Wert bereits als abgeglichen vermerkt, kann sich an den Commits nichts
+  geändert haben - der Lauf kostet für dieses Repository dann keinen Request.
+
+  `nil` als gespeicherter Wert heißt "noch nie geholt" und nicht "nichts da":
+  ein leeres Repository bliebe sonst für immer ungeprüft, weil es keine Woche
+  hinterlässt, an der man das erkennen könnte.
+  """
+  def commits_synced?(_repo_id, nil), do: false
+
+  def commits_synced?(repo_id, %DateTime{} = pushed_at) do
+    from(r in Repository, where: r.repo_id == ^repo_id, select: r.synced_pushed_at)
+    |> Repo.one()
+    |> case do
+      %DateTime{} = synced -> DateTime.compare(synced, pushed_at) == :eq
+      nil -> false
+    end
+  end
+
+  @doc """
+  Hält fest, bis zu welchem `pushed_at` die Commits geholt wurden.
+
+  Gehört ans Ende eines erfolgreichen Abgleichs, nie davor: ein abgebrochener
+  Lauf muss beim nächsten Mal erneut versuchen, statt als erledigt zu gelten.
+  """
+  def mark_commits_synced(repo_id, %DateTime{} = pushed_at) do
+    pushed_at = DateTime.truncate(pushed_at, :second)
+
+    from(r in Repository, where: r.repo_id == ^repo_id)
+    |> Repo.update_all(set: [synced_pushed_at: pushed_at])
+
+    :ok
+  end
+
+  def mark_commits_synced(_repo_id, nil), do: :ok
+
   @doc "Jüngste erfasste Woche eines Repositories, oder nil."
   def latest_week(repo_id) do
     from(a in RepoActivity,

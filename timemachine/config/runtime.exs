@@ -12,7 +12,10 @@ if config_env() == :prod do
       (System.get_env("GITHUB_ACCOUNTS") || "dxdye")
       |> String.split(",", trim: true)
       |> Enum.map(&String.trim/1),
-    poll_interval_ms: String.to_integer(System.get_env("POLL_INTERVAL_MS") || "3600000"),
+    # Fünf Minuten. Ohne GITHUB_TOKEN kostet jeder Lauf einen Request je
+    # Account vom Kontingent von 60 pro Stunde - wer viele Accounts pollt,
+    # setzt entweder den Token oder diesen Wert höher.
+    poll_interval_ms: String.to_integer(System.get_env("POLL_INTERVAL_MS") || "300000"),
     timeline_path: System.get_env("TIMELINE_PATH") || "/app/data/timeline.json",
     start_poller: System.get_env("START_POLLER") != "false"
 end

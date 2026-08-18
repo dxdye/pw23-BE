@@ -100,6 +100,37 @@ defmodule Timemachine.TimelineTest do
     assert File.exists?(path)
   end
 
+  describe "write_unless_current/2" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "timeline_#{System.unique_integer([:positive])}.json")
+      on_exit(fn -> File.rm(path) end)
+      {:ok, path: path}
+    end
+
+    test "ohne Änderung bleibt die Datei unangetastet", %{path: path} do
+      assert {:ok, ^path, _} = Timeline.write(path)
+      written = File.read!(path)
+
+      assert :current = Timeline.write_unless_current(false, path)
+      # Inhaltsvergleich statt mtime: generatedAt trägt Mikrosekunden, ein
+      # zweiter Schreibvorgang wäre daran zu erkennen.
+      assert File.read!(path) == written
+    end
+
+    test "mit Änderung wird geschrieben", %{path: path} do
+      assert {:ok, ^path, bytes} = Timeline.write_unless_current(true, path)
+      assert bytes > 0
+    end
+
+    test "eine fehlende Datei ist selbst Grund genug", %{path: path} do
+      # Sonst stünde nach einem verlorenen Volume nie wieder eine Timeline da,
+      # solange niemand etwas pusht.
+      refute File.exists?(path)
+      assert {:ok, ^path, _} = Timeline.write_unless_current(false, path)
+      assert File.exists?(path)
+    end
+  end
+
   test "ein Repository ganz ohne Aktivität taucht nicht auf" do
     add_repo(4, "leer")
 

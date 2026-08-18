@@ -50,31 +50,51 @@ defmodule Timemachine.Poller do
     # Erst alle Accounts abgleichen, dann aufräumen: ein zwischen zwei
     # konfigurierten Accounts transferiertes Repository hat danach bereits
     # seinen neuen Account und gilt nicht fälschlich als verschwunden.
-    results = Enum.map(state.accounts, &{&1, sync_account(&1, state.accounts)})
+    outcomes = Enum.map(state.accounts, &{&1, sync_account(&1, state.accounts)})
+
+    results = Enum.map(outcomes, fn {account, {result, _synced}} -> {account, result} end)
+    synced = outcomes |> Enum.map(fn {_account, {_result, n}} -> n end) |> Enum.sum()
     gone = reconcile(results)
 
-    {:ok, _path, bytes} = Timeline.write()
-    Logger.info("poll finished, #{length(gone)} gone, timeline #{bytes} bytes")
+    # Im Regelfall - alle fünf Minuten, ohne dass jemand etwas gepusht hat -
+    # bleibt die Datei unangetastet. Sie neu zu schreiben ergäbe denselben
+    # Inhalt bis auf generatedAt.
+    case Timeline.write_unless_current(synced > 0 or gone != []) do
+      {:ok, _path, bytes} ->
+        Logger.info("poll finished, #{synced} updated, #{length(gone)} gone, #{bytes} bytes")
+
+      :current ->
+        Logger.debug("poll finished, nothing changed")
+    end
+
     results
   end
 
+  # Gibt `{ergebnis, anzahl_aktualisierter_repos}` zurück. Das Ergebnis behält
+  # die Form, die reconcile/2 erwartet - die Zählung hängt nur daran, ob sich
+  # die Timeline neu schreiben muss.
   defp sync_account(account, own_logins) do
     case GitHub.list_repos(account) do
       :not_modified ->
         # 304 heißt: die Liste ist unverändert. Dann ist auch nichts
         # verschwunden - hier darf nicht aufgeräumt werden.
-        Logger.info("#{account}: not modified")
-        :not_modified
+        # Debug, nicht Info: im Fünf-Minuten-Takt ist das der Normalfall.
+        Logger.debug("#{account}: not modified")
+        {:not_modified, 0}
 
       {:ok, repos} ->
-        Enum.each(repos, &sync_repo(&1, own_logins))
-        {:ok, Enum.map(repos, & &1.repo_id)}
+        synced =
+          repos
+          |> Enum.map(&sync_repo(&1, own_logins))
+          |> Enum.count(&(&1 == :synced))
+
+        {{:ok, Enum.map(repos, & &1.repo_id)}, synced}
 
       {:error, error} ->
         # Ein fehlgeschlagener Account darf die anderen nicht mitreißen; der
         # nächste Lauf versucht es erneut.
         Logger.error("#{account}: #{Exception.message(error)}")
-        {:error, error}
+        {{:error, error}, 0}
     end
   end
 
@@ -103,10 +123,42 @@ defmodule Timemachine.Poller do
     missing
   end
 
+  # Die Liste eines Accounts wird schon dann neu geliefert, wenn sich an einem
+  # einzigen Repository etwas geändert hat. Ohne die pushed_at-Prüfung würde
+  # danach für *jedes* Repository die Commit-Liste geholt - im
+  # Fünf-Minuten-Takt der Großteil des Kontingents für Antworten, die sich
+  # nicht unterscheiden.
+  #
+  # Der teure Vollabgleich - ein Repository ohne `synced_pushed_at`, also ohne
+  # je gelaufenen Backfill - passiert damit genau einmal.
   defp sync_repo(repo, own_logins) do
     History.upsert_repository(Map.drop(repo, [:state]))
     History.record_state(repo.repo_id, repo.state)
+    pushed_at = repo.state.pushed_at
 
+    if History.commits_synced?(repo.repo_id, pushed_at) do
+      :unchanged
+    else
+      case sync_commits(repo, own_logins) do
+        :ok ->
+          # Erst nach dem Schreiben: ein abgebrochener Abgleich muss beim
+          # nächsten Lauf erneut versuchen, statt als erledigt zu gelten.
+          History.mark_commits_synced(repo.repo_id, pushed_at)
+          :synced
+
+        :error ->
+          :error
+      end
+    end
+  rescue
+    error ->
+      # Ein einzelnes Repository darf den Lauf nicht abbrechen - sonst nimmt es
+      # die übrigen und den Materialisierer mit.
+      Logger.error("#{repo.full_name}: #{Exception.message(error)}")
+      :error
+  end
+
+  defp sync_commits(repo, own_logins) do
     # Nur die Wochen ab der jüngsten bekannten neu holen und ersetzen. Ersetzen
     # statt Hochzählen, damit ein überlappender Lauf nicht doppelt zählt.
     from_week = History.latest_week(repo.repo_id)
@@ -116,6 +168,8 @@ defmodule Timemachine.Poller do
       {:ok, counts} when map_size(counts) > 0 ->
         write_weeks(repo, own_logins, from_week, counts)
 
+      # Auch das ist ein erfolgreicher Abgleich: ein leeres Repository oder ein
+      # Push auf einen Nebenzweig. Sonst bliebe es für immer ungeprüft.
       {:ok, _empty} ->
         :ok
 
@@ -123,12 +177,6 @@ defmodule Timemachine.Poller do
         Logger.warning("#{repo.full_name}: #{Exception.message(error)}")
         :error
     end
-  rescue
-    error ->
-      # Ein einzelnes Repository darf den Lauf nicht abbrechen - sonst nimmt es
-      # die übrigen und den Materialisierer mit.
-      Logger.error("#{repo.full_name}: #{Exception.message(error)}")
-      :error
   end
 
   # GitHubs `since` filtert nach **Committer**-Datum, die Woche wird aber aus

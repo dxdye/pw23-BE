@@ -34,6 +34,24 @@ defmodule Timemachine.Timeline do
   end
 
   @doc """
+  Schreibt nur, wenn es einen Grund gibt: geänderte Daten oder eine fehlende
+  Datei. Gibt sonst `:current` zurück.
+
+  Ein Poll-Lauf im Fünf-Minuten-Takt findet meistens nichts Neues. Die Datei
+  dann trotzdem zu ersetzen, brächte einen identischen Inhalt bis auf
+  `generatedAt` - und für nginx ein neues mtime ohne neuen Stand.
+  """
+  def write_unless_current(changed?, path \\ nil) do
+    path = path || Application.fetch_env!(:timemachine, :timeline_path)
+
+    if changed? or not File.exists?(path) do
+      write(path)
+    else
+      :current
+    end
+  end
+
+  @doc """
   Kompakte Darstellung: eine sortierte Wochenachse plus je Repository die
   Zählungen als Arrays. Objekte je Woche würden den Wochenschlüssel für jedes
   Repository wiederholen.
