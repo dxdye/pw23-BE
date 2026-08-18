@@ -40,6 +40,7 @@ export const summary = (
   html_url: "https://github.com/dxdye/blackhole",
   description: "demo",
   language: "TypeScript",
+  languages: null,
   created_at: "2024-08-06T10:00:00Z",
   pushed_at: "2026-08-01T09:00:00Z",
   updated_at: "2026-08-01T10:00:00Z",

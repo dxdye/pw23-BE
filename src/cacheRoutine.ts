@@ -1,4 +1,5 @@
 import { fetchRepos } from "./request.ts";
+import { refreshLanguages } from "./languages.ts";
 import type { CacheStore, RepoCacheEntry } from "./store.ts";
 
 export const buildGithubReposUrl = (account: string) =>
@@ -107,6 +108,10 @@ export const startCacheRefresh = (
   const tick = async () => {
     try {
       await fetchAndCache(store, url, timeoutMs);
+      // Sprachen nachgelagert und gedrosselt - siehe languages.ts. Schlaegt
+      // das fehl, bleibt die Repo-Liste trotzdem aktuell.
+      const { fetched } = await refreshLanguages(store, url, { timeoutMs });
+      if (fetched > 0) console.log(`Fetched languages for ${fetched} repos`);
     } catch (error) {
       console.error(
         `Failed to refresh ${url}:`,

@@ -42,6 +42,8 @@ const toSummary = (repo: Record<string, unknown>): GithubCrawlerInfo => ({
   html_url: String(repo.html_url ?? ""),
   description: (repo.description as string | null) ?? null,
   language: (repo.language as string | null) ?? null,
+  // Wird nachgelagert ergaenzt - siehe languages.ts. null heisst "unbekannt".
+  languages: null,
   created_at: String(repo.created_at ?? ""),
   pushed_at: String(repo.pushed_at ?? ""),
   updated_at: String(repo.updated_at ?? ""),
@@ -152,4 +154,55 @@ export const fetchRepos = async (
     `Stopped paginating ${url} after ${MAX_PAGES} pages (${repos.length} repos)`,
   );
   return { status: "ok", data: repos, etag: null };
+};
+
+export type LanguagesResult =
+  | { status: "ok"; data: Record<string, number>; etag: string | null }
+  | { status: "not-modified" };
+
+/**
+ * Sprachverteilung eines einzelnen Repositories.
+ *
+ * `/users/:account/repos` liefert nur `language`, also die groesste Sprache.
+ * Die Aufschluesselung gibt es ausschliesslich unter
+ * `/repos/:owner/:name/languages` - ein zusaetzlicher Request je Repository.
+ * Deshalb wird dieser Aufruf gedrosselt und nur bei Bedarf gemacht.
+ */
+export const fetchLanguages = async (
+  url: string,
+  etag: string | null = null,
+  timeoutMs = 15_000,
+): Promise<LanguagesResult> => {
+  const res = await fetch(url, {
+    method: "GET",
+    headers: buildHeaders(etag),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (res.status === 304) {
+    await res.body?.cancel();
+    return { status: "not-modified" };
+  }
+  if (!res.ok) throw await toError(res);
+
+  const payload = await res.json().catch(() => null);
+  // Fehlerantworten sind ebenfalls Objekte - hier hilft nur die Pruefung, ob
+  // die Werte tatsaechlich Zahlen sind.
+  if (
+    payload === null || typeof payload !== "object" || Array.isArray(payload)
+  ) {
+    throw new GitHubError(
+      "GitHub returned a non-object language map",
+      res.status,
+    );
+  }
+
+  const data: Record<string, number> = {};
+  for (
+    const [name, bytes] of Object.entries(payload as Record<string, unknown>)
+  ) {
+    if (typeof bytes === "number" && Number.isFinite(bytes)) data[name] = bytes;
+  }
+
+  return { status: "ok", data, etag: res.headers.get("etag") };
 };

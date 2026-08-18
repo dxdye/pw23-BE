@@ -47,18 +47,23 @@ export const createCacheStore = (path: string) => {
   );
 
   return {
-    get(url: string): RepoCacheEntry | null {
+    /**
+     * Generisch mit Vorgabe auf die Repo-Liste: bestehende Aufrufer bleiben
+     * unveraendert, die Sprachdaten koennen dieselbe Tabelle mitbenutzen. Der
+     * Schluessel ist ohnehin die URL, und die ist je Datenart verschieden.
+     */
+    get<T = GitHubApiRepositories>(url: string): CacheEntry<T> | null {
       const row = selectStmt.get(url) as Row | undefined;
       if (!row) return null;
       return {
         url: row.url,
-        data: JSON.parse(row.data) as GitHubApiRepositories,
+        data: JSON.parse(row.data) as T,
         etag: row.etag,
         updatedAt: new Date(row.updated_at),
       };
     },
 
-    put(entry: RepoCacheEntry): RepoCacheEntry {
+    put<T = GitHubApiRepositories>(entry: CacheEntry<T>): CacheEntry<T> {
       upsertStmt.run(
         entry.url,
         JSON.stringify(entry.data),
